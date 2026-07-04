@@ -461,7 +461,7 @@ function Dashboard({ transactions, inventory }) {
 /* ============================================================
    TRANSAKSI (form + riwayat gabungan)
    ============================================================ */
-function TransaksiForm({ onSave, onClose, editing }) {
+function TransaksiForm({ onSave, onClose, editing, inventory = [] }) {
   const [jenis, setJenis] = useState(editing?.jenis || "pemasukan");
   const [tanggal, setTanggal] = useState(editing?.tanggal || toISO(new Date()));
   const [kategori, setKategori] = useState(editing?.kategori || PEMASUKAN_KATEGORI[0]);
@@ -470,10 +470,32 @@ function TransaksiForm({ onSave, onClose, editing }) {
   const [nominal, setNominal] = useState(editing?.nominal ? String(editing.nominal) : "");
   const [bukti, setBukti] = useState(!!editing?.bukti);
   const [error, setError] = useState("");
+  const [inventoryId, setInventoryId] = useState(editing?.inventory_id || "");
+  const [quantity, setQuantity] = useState(editing?.quantity ? String(editing.quantity) : "1");
 
   const katOptions = jenis === "pemasukan" ? PEMASUKAN_KATEGORI : PENGELUARAN_KATEGORI;
 
   useEffect(() => { if (!katOptions.includes(kategori)) setKategori(katOptions[0]); }, [jenis]);
+
+  useEffect(() => {
+    if (kategori !== "Penjualan" && kategori !== "Pembelian Bahan") {
+      setInventoryId("");
+    }
+  }, [kategori]);
+
+  useEffect(() => {
+    if (!inventoryId || !quantity || (kategori !== "Penjualan" && kategori !== "Pembelian Bahan")) return;
+    const item = inventory.find((i) => i.id === inventoryId);
+    if (!item) return;
+    const qty = Number(quantity) || 0;
+    if (kategori === "Penjualan") {
+      setNama(`Penjualan ${item.nama} - ${qty} ${item.satuan}`);
+      setNominal(String(qty * item.hargaJual));
+    } else {
+      setNama(`Pembelian ${item.nama} - ${qty} ${item.satuan}`);
+      setNominal(String(qty * item.hargaModal));
+    }
+  }, [inventoryId, quantity, kategori, inventory]);
 
   const submit = (e) => {
     e.preventDefault();
@@ -481,10 +503,20 @@ function TransaksiForm({ onSave, onClose, editing }) {
       setError("Lengkapi nama transaksi dan nominal yang valid.");
       return;
     }
+    if (kategori === "Penjualan" && inventoryId) {
+      const item = inventory.find((i) => i.id === inventoryId);
+      const qty = Number(quantity) || 0;
+      if (item && qty > item.stok) {
+        setError(`Stok ${item.nama} tidak mencukupi. Tersedia: ${item.stok} ${item.satuan}`);
+        return;
+      }
+    }
     onSave({
       id: editing?.id || ("TRX" + Date.now().toString().slice(-6)),
       tanggal, jenis, kategori, nama: nama.trim(), deskripsi: deskripsi.trim(),
       nominal: Number(nominal), status: "Selesai", bukti,
+      inventory_id: inventoryId || null,
+      quantity: inventoryId ? Number(quantity) : null,
     });
   };
 
@@ -525,6 +557,26 @@ function TransaksiForm({ onSave, onClose, editing }) {
             </div>
           </div>
 
+          {(kategori === "Penjualan" || kategori === "Pembelian Bahan") && (
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="text-[12.5px] font-medium text-[#6E6E73] block mb-1.5">Produk</label>
+                <select value={inventoryId} onChange={(e) => setInventoryId(e.target.value)}
+                  className="w-full px-3 py-2.5 rounded-xl bg-[#F5F5F7] border border-transparent text-[13.5px] focus:outline-none focus:bg-white focus:border-[#3F6B4F]">
+                  <option value="">-- Pilih Produk --</option>
+                  {inventory.map((item) => (
+                    <option key={item.id} value={item.id}>{item.nama} (stok: {item.stok} {item.satuan})</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="text-[12.5px] font-medium text-[#6E6E73] block mb-1.5">Quantity</label>
+                <input type="number" min="1" value={quantity} onChange={(e) => setQuantity(e.target.value)}
+                  className="w-full px-3 py-2.5 rounded-xl bg-[#F5F5F7] border border-transparent text-[13.5px] focus:outline-none focus:bg-white focus:border-[#3F6B4F]" />
+              </div>
+            </div>
+          )}
+
           <div>
             <label className="text-[12.5px] font-medium text-[#6E6E73] block mb-1.5">Nama Transaksi</label>
             <input value={nama} onChange={(e) => setNama(e.target.value)} placeholder="mis. Penjualan jamur ke Pasar Wonokromo"
@@ -540,7 +592,8 @@ function TransaksiForm({ onSave, onClose, editing }) {
           <div>
             <label className="text-[12.5px] font-medium text-[#6E6E73] block mb-1.5">Nominal (Rp)</label>
             <input type="number" min="0" value={nominal} onChange={(e) => setNominal(e.target.value)} placeholder="0"
-              className="w-full px-3 py-2.5 rounded-xl bg-[#F5F5F7] border border-transparent text-[13.5px] focus:outline-none focus:bg-white focus:border-[#3F6B4F]" />
+              readOnly={!!inventoryId && (kategori === "Penjualan" || kategori === "Pembelian Bahan")}
+              className={`w-full px-3 py-2.5 rounded-xl border border-transparent text-[13.5px] focus:outline-none focus:bg-white focus:border-[#3F6B4F] ${!!inventoryId && (kategori === "Penjualan" || kategori === "Pembelian Bahan") ? "bg-[#EEEEF0] text-[#8E8E93] cursor-not-allowed" : "bg-[#F5F5F7]"}`} />
           </div>
 
           <button type="button" onClick={() => setBukti((b) => !b)}
@@ -564,7 +617,7 @@ function TransaksiForm({ onSave, onClose, editing }) {
   );
 }
 
-function TransaksiPage({ transactions, onAdd, onUpdate, onDelete, notify }) {
+function TransaksiPage({ transactions, inventory, onAdd, onUpdate, onDelete, notify }) {
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState(null);
   const [search, setSearch] = useState("");
@@ -719,7 +772,7 @@ function TransaksiPage({ transactions, onAdd, onUpdate, onDelete, notify }) {
         )}
       </Card>
 
-      {showForm && <TransaksiForm editing={editing} onClose={() => { setShowForm(false); setEditing(null); }} onSave={handleSave} />}
+      {showForm && <TransaksiForm inventory={inventory} editing={editing} onClose={() => { setShowForm(false); setEditing(null); }} onSave={handleSave} />}
     </div>
   );
 }
@@ -1303,23 +1356,66 @@ export default function App() {
     try {
       const created = await createTransaction(t, userId);
       setTransactions((prev) => [created, ...prev]);
+      if (t.inventory_id && t.quantity) {
+        const delta = t.jenis === "pemasukan" ? -Number(t.quantity) : Number(t.quantity);
+        const item = inventory.find((i) => i.id === t.inventory_id);
+        if (item) {
+          const updatedItem = await updateInventory({ ...item, stok: Math.max(0, item.stok + delta) });
+          setInventory((prev) => prev.map((x) => (x.id === updatedItem.id ? updatedItem : x)));
+        }
+      }
     } catch (error) {
       notify("Gagal menyimpan transaksi: " + error.message);
     }
   };
   const updateTx = async (t) => {
     try {
+      const oldTx = transactions.find((x) => x.id === t.id);
       const updated = await updateTransaction(t);
       setTransactions((prev) => prev.map((x) => (x.id === updated.id ? updated : x)));
+      const updatedInvMap = {};
+      if (oldTx?.inventory_id && oldTx?.quantity) {
+        const reverseDelta = oldTx.jenis === "pemasukan" ? Number(oldTx.quantity) : -Number(oldTx.quantity);
+        const item = inventory.find((i) => i.id === oldTx.inventory_id);
+        if (item) {
+          const updatedItem = await updateInventory({ ...item, stok: Math.max(0, item.stok + reverseDelta) });
+          updatedInvMap[updatedItem.id] = updatedItem;
+        }
+      }
+      if (t.inventory_id && t.quantity) {
+        const delta = t.jenis === "pemasukan" ? -Number(t.quantity) : Number(t.quantity);
+        const base = updatedInvMap[t.inventory_id] || inventory.find((i) => i.id === t.inventory_id);
+        if (base) {
+          const updatedItem = await updateInventory({ ...base, stok: Math.max(0, base.stok + delta) });
+          updatedInvMap[updatedItem.id] = updatedItem;
+        }
+      }
+      const invValues = Object.values(updatedInvMap);
+      if (invValues.length > 0) {
+        setInventory((prev) => {
+          let next = [...prev];
+          invValues.forEach((ui) => { next = next.map((x) => (x.id === ui.id ? ui : x)); });
+          return next;
+        });
+      }
     } catch (error) {
       notify("Gagal memperbarui transaksi: " + error.message);
     }
   };
   const deleteTx = async (id) => {
     const prevState = transactions;
+    const deletedTx = transactions.find((x) => x.id === id);
     setTransactions((prev) => prev.filter((x) => x.id !== id)); // optimistic
     try {
       await deleteTransaction(id);
+      if (deletedTx?.inventory_id && deletedTx?.quantity) {
+        const reverseDelta = deletedTx.jenis === "pemasukan" ? Number(deletedTx.quantity) : -Number(deletedTx.quantity);
+        const item = inventory.find((i) => i.id === deletedTx.inventory_id);
+        if (item) {
+          const updatedItem = await updateInventory({ ...item, stok: Math.max(0, item.stok + reverseDelta) });
+          setInventory((prev) => prev.map((x) => (x.id === updatedItem.id ? updatedItem : x)));
+        }
+      }
     } catch (error) {
       setTransactions(prevState); // rollback jika gagal
       notify("Gagal menghapus transaksi: " + error.message);
@@ -1440,7 +1536,7 @@ export default function App() {
           ) : (
             <>
               {view === "dashboard" && <Dashboard transactions={transactions} inventory={inventory} />}
-              {view === "transaksi" && <TransaksiPage transactions={transactions} onAdd={addTx} onUpdate={updateTx} onDelete={deleteTx} notify={notify} />}
+              {view === "transaksi" && <TransaksiPage transactions={transactions} inventory={inventory} onAdd={addTx} onUpdate={updateTx} onDelete={deleteTx} notify={notify} />}
               {view === "inventory" && <InventoryPage inventory={inventory} onAdd={addInv} onUpdate={updateInv} onDelete={deleteInv} notify={notify} />}
               {view === "laporan" && <LaporanPage transactions={transactions} inventory={inventory} />}
               {view === "settings" && <SettingsPage user={user} onLogout={handleLogout} />}

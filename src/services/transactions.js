@@ -9,7 +9,7 @@ import { supabase } from "@/lib/supabaseClient";
  * localStorage ke Supabase.
  */
 
-const SELECT_COLUMNS = "id, tanggal, jenis, kategori, nama, deskripsi, nominal, status, bukti";
+const SELECT_COLUMNS = "id, tanggal, jenis, kategori, nama, deskripsi, nominal, status, bukti, inventory_id, quantity";
 
 export async function fetchTransactions() {
   const { data, error } = await supabase

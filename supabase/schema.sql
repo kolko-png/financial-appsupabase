@@ -55,6 +55,8 @@ create table transactions (
   bukti boolean not null default false,
   created_by uuid references profiles(id) on delete set null,
   created_at timestamptz not null default now(),
+  inventory_id text references inventory(id) on delete set null,
+  quantity numeric(18,2),
   updated_at timestamptz not null default now()
 );
 
