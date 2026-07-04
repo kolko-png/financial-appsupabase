@@ -8,11 +8,12 @@ import {
   Plus, Search, Download, TrendingUp, TrendingDown, X, Menu,
   Sprout, ChevronRight, Wallet, ArrowDownCircle, ArrowUpCircle,
   Boxes, ScrollText, BookOpen, Waves, Landmark, Trash2, Pencil,
-  Paperclip, ChevronDown, Check, Loader2,
+  Paperclip, ChevronDown, Check, Loader2, Percent,
 } from "lucide-react";
 import { signIn, signOut, getSession, getProfile, onAuthStateChange } from "@/services/auth";
 import { fetchTransactions, createTransaction, updateTransaction, deleteTransaction } from "@/services/transactions";
 import { fetchInventory, createInventory, updateInventory, deleteInventory } from "@/services/inventory";
+import { fetchDiscounts, createDiscount, updateDiscount, deleteDiscount } from "@/services/discounts";
 
 /* ============================================================
    DJAYA MURSHODOH GROUP — Sistem Finansial Internal
@@ -461,7 +462,7 @@ function Dashboard({ transactions, inventory }) {
 /* ============================================================
    TRANSAKSI (form + riwayat gabungan)
    ============================================================ */
-function TransaksiForm({ onSave, onClose, editing, inventory = [] }) {
+function TransaksiForm({ onSave, onClose, editing, inventory = [], discounts = [] }) {
   const [jenis, setJenis] = useState(editing?.jenis || "pemasukan");
   const [tanggal, setTanggal] = useState(editing?.tanggal || toISO(new Date()));
   const [kategori, setKategori] = useState(editing?.kategori || PEMASUKAN_KATEGORI[0]);
@@ -472,6 +473,7 @@ function TransaksiForm({ onSave, onClose, editing, inventory = [] }) {
   const [error, setError] = useState("");
   const [inventoryId, setInventoryId] = useState(editing?.inventory_id || "");
   const [quantity, setQuantity] = useState(editing?.quantity ? String(editing.quantity) : "1");
+  const [discountId, setDiscountId] = useState(editing?.discount_id || "");
 
   const katOptions = jenis === "pemasukan" ? PEMASUKAN_KATEGORI : PENGELUARAN_KATEGORI;
 
@@ -497,11 +499,33 @@ function TransaksiForm({ onSave, onClose, editing, inventory = [] }) {
     }
   }, [inventoryId, quantity, kategori, inventory]);
 
+  // Reverse-calculate gross from net when editing a transaction with discount
+  useEffect(() => {
+    if (editing?.discount_id && editing?.nominal) {
+      const disc = discounts.find((d) => d.id === editing.discount_id);
+      if (disc && disc.persentase > 0) {
+        const gross = Math.round(Number(editing.nominal) / (1 - disc.persentase / 100));
+        setNominal(String(gross));
+      }
+    }
+  }, []);
+
+  const selectedDisc = discountId ? discounts.find((d) => d.id === discountId) : null;
+  const grossNominal = Number(nominal) || 0;
+  const netNominal = selectedDisc ? Math.round(grossNominal * (1 - selectedDisc.persentase / 100)) : grossNominal;
+
   const submit = (e) => {
     e.preventDefault();
     if (!nama.trim() || !nominal || Number(nominal) <= 0) {
       setError("Lengkapi nama transaksi dan nominal yang valid.");
       return;
+    }
+    if (discountId) {
+      const validDisc = discounts.find((d) => d.id === discountId);
+      if (!validDisc) {
+        setError("Diskon yang dipilih tidak valid. Silakan pilih ulang.");
+        return;
+      }
     }
     if (kategori === "Penjualan" && inventoryId) {
       const item = inventory.find((i) => i.id === inventoryId);
@@ -512,11 +536,13 @@ function TransaksiForm({ onSave, onClose, editing, inventory = [] }) {
       }
     }
     onSave({
-      id: editing?.id || ("TRX" + Date.now().toString().slice(-6)),
+      id: editing?.id,
       tanggal, jenis, kategori, nama: nama.trim(), deskripsi: deskripsi.trim(),
-      nominal: Number(nominal), status: "Selesai", bukti,
+      nominal: selectedDisc ? netNominal : Number(nominal),
+      status: "Selesai", bukti,
       inventory_id: inventoryId || null,
       quantity: inventoryId ? Number(quantity) : null,
+      discount_id: selectedDisc ? discountId : null,
     });
   };
 
@@ -596,6 +622,38 @@ function TransaksiForm({ onSave, onClose, editing, inventory = [] }) {
               className={`w-full px-3 py-2.5 rounded-xl border border-transparent text-[13.5px] focus:outline-none focus:bg-white focus:border-[#3F6B4F] ${!!inventoryId && (kategori === "Penjualan" || kategori === "Pembelian Bahan") ? "bg-[#EEEEF0] text-[#8E8E93] cursor-not-allowed" : "bg-[#F5F5F7]"}`} />
           </div>
 
+          {jenis === "pemasukan" && (
+            <div>
+              <label className="text-[12.5px] font-medium text-[#6E6E73] block mb-1.5">Diskon (opsional)</label>
+              <select value={discountId} onChange={(e) => setDiscountId(e.target.value)}
+                className="w-full px-3 py-2.5 rounded-xl bg-[#F5F5F7] border border-transparent text-[13.5px] focus:outline-none focus:bg-white focus:border-[#3F6B4F]">
+                <option value="">Tidak ada diskon</option>
+                {discounts.map((d) => (
+                  <option key={d.id} value={d.id}>{d.nama} ({d.persentase}%)</option>
+                ))}
+              </select>
+            </div>
+          )}
+
+          {selectedDisc && (
+            <div className="rounded-xl border border-[#E5E5E7] bg-[#FAFAFA] px-4 py-3 space-y-1.5">
+              <div className="flex items-center justify-between text-[13px]">
+                <span className="text-[#8E8E93]">Harga sebelum diskon</span>
+                <span className="text-[#4B4B4E] line-through">{rupiah(grossNominal)}</span>
+              </div>
+              <div className="flex items-center justify-between text-[13px]">
+                <span className="flex items-center gap-1.5 text-[#8E8E93]">
+                  <Percent size={12} /> Diskon {selectedDisc.nama}
+                </span>
+                <span className="text-[#C0392B]">-{selectedDisc.persentase}%</span>
+              </div>
+              <div className="border-t border-[#E5E5E7] pt-1.5 flex items-center justify-between text-[14px] font-semibold">
+                <span style={{ color: INK }}>Harga setelah diskon</span>
+                <span style={{ color: BRAND }}>{rupiah(netNominal)}</span>
+              </div>
+            </div>
+          )}
+
           <button type="button" onClick={() => setBukti((b) => !b)}
             className="w-full flex items-center justify-between px-3 py-2.5 rounded-xl bg-[#F5F5F7] text-[13.5px]">
             <span className="flex items-center gap-2 text-[#4B4B4E]"><Paperclip size={15} color={SUB} /> Bukti transaksi</span>
@@ -617,7 +675,7 @@ function TransaksiForm({ onSave, onClose, editing, inventory = [] }) {
   );
 }
 
-function TransaksiPage({ transactions, inventory, onAdd, onUpdate, onDelete, notify }) {
+function TransaksiPage({ transactions, inventory, discounts, onAdd, onUpdate, onDelete, notify }) {
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState(null);
   const [search, setSearch] = useState("");
@@ -633,7 +691,7 @@ function TransaksiPage({ transactions, inventory, onAdd, onUpdate, onDelete, not
     let list = [...transactions];
     if (search.trim()) {
       const q = search.toLowerCase();
-      list = list.filter((t) => t.nama.toLowerCase().includes(q) || t.deskripsi.toLowerCase().includes(q) || t.id.toLowerCase().includes(q));
+      list = list.filter((t) => t.nama.toLowerCase().includes(q) || t.deskripsi.toLowerCase().includes(q) || t.id_invoice?.toLowerCase().includes(q));
     }
     if (filterJenis !== "semua") list = list.filter((t) => t.jenis === filterJenis);
     if (filterKategori !== "semua") list = list.filter((t) => t.kategori === filterKategori);
@@ -659,8 +717,8 @@ function TransaksiPage({ transactions, inventory, onAdd, onUpdate, onDelete, not
   };
 
   const exportExcel = () => {
-    const rows = [["ID", "Tanggal", "Jenis", "Kategori", "Nama", "Deskripsi", "Nominal", "Status"]];
-    filtered.forEach((t) => rows.push([t.id, t.tanggal, t.jenis, t.kategori, t.nama, t.deskripsi, t.nominal, t.status]));
+    const rows = [["ID Invoice", "Tanggal", "Jenis", "Kategori", "Nama", "Deskripsi", "Nominal", "Status"]];
+    filtered.forEach((t) => rows.push([t.id_invoice, t.tanggal, t.jenis, t.kategori, t.nama, t.deskripsi, t.nominal, t.status]));
     const ok = downloadCSV("riwayat-transaksi.csv", rows);
     notify(ok ? "File Excel (CSV) berhasil diunduh" : "Gagal mengekspor file");
   };
@@ -689,7 +747,7 @@ function TransaksiPage({ transactions, inventory, onAdd, onUpdate, onDelete, not
         <div className="flex flex-col lg:flex-row gap-2.5">
           <div className="flex-1 flex items-center gap-2 px-3 py-2 rounded-xl bg-[#F5F5F7]">
             <Search size={15} color={SUB} />
-            <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Cari transaksi, deskripsi, atau ID..."
+            <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Cari transaksi, deskripsi, atau ID invoice..."
               className="bg-transparent flex-1 text-[13.5px] focus:outline-none" />
           </div>
           <select value={filterJenis} onChange={(e) => setFilterJenis(e.target.value)}
@@ -739,6 +797,11 @@ function TransaksiPage({ transactions, inventory, onAdd, onUpdate, onDelete, not
                   <td className="py-3.5 px-3 text-[#8E8E93] hidden md:table-cell max-w-[240px] truncate">{t.nama}</td>
                   <td className="py-3.5 px-3 text-right font-medium whitespace-nowrap" style={{ color: t.jenis === "pemasukan" ? BRAND : DANGER }}>
                     {t.jenis === "pemasukan" ? "+" : "−"}{rupiah(t.nominal)}
+                    {t.discount_id && (
+                      <span className="ml-1.5 inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full bg-[#FCEDED] text-[10px] font-medium text-[#C0392B]">
+                        <Percent size={9} /> Diskon
+                      </span>
+                    )}
                   </td>
                   <td className="py-3.5 px-5">
                     <div className="flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
@@ -772,7 +835,7 @@ function TransaksiPage({ transactions, inventory, onAdd, onUpdate, onDelete, not
         )}
       </Card>
 
-      {showForm && <TransaksiForm inventory={inventory} editing={editing} onClose={() => { setShowForm(false); setEditing(null); }} onSave={handleSave} />}
+      {showForm && <TransaksiForm inventory={inventory} discounts={discounts} editing={editing} onClose={() => { setShowForm(false); setEditing(null); }} onSave={handleSave} />}
     </div>
   );
 }
@@ -795,7 +858,7 @@ function InventoryPage({ inventory, onAdd, onUpdate, onDelete, notify }) {
     const submit = (e) => {
       e.preventDefault();
       if (!nama.trim() || stok === "" || hargaModal === "" || hargaJual === "") return;
-      const item = { id: editing?.id || ("INV" + Date.now().toString().slice(-5)), nama: nama.trim(), stok: Number(stok), satuan, hargaModal: Number(hargaModal), hargaJual: Number(hargaJual) };
+      const item = { id: editing?.id, id_invoice: editing?.id_invoice, nama: nama.trim(), stok: Number(stok), satuan, hargaModal: Number(hargaModal), hargaJual: Number(hargaJual) };
       if (editing) { onUpdate(item); notify("Data stok diperbarui"); } else { onAdd(item); notify("Produk ditambahkan"); }
       setShowForm(false); setEditing(null);
     };
@@ -865,7 +928,7 @@ function InventoryPage({ inventory, onAdd, onUpdate, onDelete, notify }) {
                 </div>
                 <div>
                   <div className="text-[14px] font-medium" style={{ color: INK }}>{i.nama}</div>
-                  <div className="text-[12px] text-[#8E8E93]">{i.id}</div>
+                  <div className="text-[12px] text-[#8E8E93]">{i.id_invoice}</div>
                 </div>
               </div>
               <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
@@ -887,6 +950,102 @@ function InventoryPage({ inventory, onAdd, onUpdate, onDelete, notify }) {
       </div>
 
       {showForm && <InvForm />}
+    </div>
+  );
+}
+
+/* ============================================================
+   DISKON
+   ============================================================ */
+function DiskonPage({ discounts, onAdd, onUpdate, onDelete, notify }) {
+  const [showForm, setShowForm] = useState(false);
+  const [editing, setEditing] = useState(null);
+
+  const DiscountForm = () => {
+    const [nama, setNama] = useState(editing?.nama || "");
+    const [persentase, setPersentase] = useState(editing?.persentase ? String(editing.persentase) : "");
+
+    const submit = (e) => {
+      e.preventDefault();
+      if (!nama.trim() || !persentase || Number(persentase) <= 0 || Number(persentase) > 100) return;
+      const disc = { id: editing?.id, nama: nama.trim(), persentase: Number(persentase) };
+      if (editing) { onUpdate(disc); notify("Diskon diperbarui"); } else { onAdd(disc); notify("Diskon ditambahkan"); }
+      setShowForm(false); setEditing(null);
+    };
+
+    return (
+      <div className="fixed inset-0 z-40 flex items-end sm:items-center justify-center bg-black/30 backdrop-blur-[2px]" onClick={() => { setShowForm(false); setEditing(null); }}>
+        <div onClick={(e) => e.stopPropagation()} className="bg-white w-full sm:max-w-[420px] sm:rounded-2xl rounded-t-2xl p-6 animate-[fadeup_0.25s_ease]">
+          <div className="flex items-center justify-between mb-5">
+            <h3 className="text-[17px] font-semibold" style={{ color: INK }}>{editing ? "Edit Diskon" : "Tambah Diskon"}</h3>
+            <button onClick={() => { setShowForm(false); setEditing(null); }} className="w-8 h-8 rounded-full flex items-center justify-center hover:bg-[#F5F5F7]"><X size={17} color={SUB} /></button>
+          </div>
+          <form onSubmit={submit} className="space-y-3.5">
+            <div>
+              <label className="text-[12.5px] font-medium text-[#6E6E73] block mb-1.5">Nama Diskon</label>
+              <input value={nama} onChange={(e) => setNama(e.target.value)} placeholder="mis. Diskon Member"
+                className="w-full px-3 py-2.5 rounded-xl bg-[#F5F5F7] text-[13.5px] focus:outline-none focus:ring-1 focus:ring-[#3F6B4F]" />
+            </div>
+            <div>
+              <label className="text-[12.5px] font-medium text-[#6E6E73] block mb-1.5">Persentase (%)</label>
+              <input type="number" min="0.01" max="100" step="0.01" value={persentase} onChange={(e) => setPersentase(e.target.value)}
+                placeholder="mis. 10"
+                className="w-full px-3 py-2.5 rounded-xl bg-[#F5F5F7] text-[13.5px] focus:outline-none focus:ring-1 focus:ring-[#3F6B4F]" />
+            </div>
+            <button type="submit" className="w-full py-3 rounded-xl text-white text-[14px] font-medium hover:opacity-90" style={{ background: INK }}>Simpan</button>
+          </form>
+        </div>
+      </div>
+    );
+  };
+
+  return (
+    <div className="space-y-5">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <div>
+          <h2 className="text-[20px] font-semibold tracking-tight" style={{ color: INK }}>Master Diskon</h2>
+          <p className="text-[13px] text-[#8E8E93] mt-0.5">{discounts.length} diskon tersedia</p>
+        </div>
+        <button onClick={() => { setEditing(null); setShowForm(true); }}
+          className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl text-white text-[13px] font-medium hover:opacity-90 active:scale-[0.99] self-start"
+          style={{ background: INK }}>
+          <Plus size={16} /> Tambah Diskon
+        </button>
+      </div>
+
+      {discounts.length === 0 ? (
+        <Card>
+          <div className="text-center py-8 text-[13.5px] text-[#B0B0B5]">Belum ada diskon. Klik "Tambah Diskon" untuk membuat baru.</div>
+        </Card>
+      ) : (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+          {discounts.map((d) => (
+            <Card key={d.id} className="group">
+              <div className="flex items-start justify-between">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-9 h-9 rounded-xl flex items-center justify-center" style={{ background: BRAND_BG }}>
+                    <Percent size={16} color={BRAND} />
+                  </div>
+                  <div>
+                    <div className="text-[14px] font-medium" style={{ color: INK }}>{d.nama}</div>
+                    <div className="text-[12px] text-[#8E8E93]">{d.id}</div>
+                  </div>
+                </div>
+                <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                  <button onClick={() => { setEditing(d); setShowForm(true); }} className="w-7 h-7 rounded-lg flex items-center justify-center hover:bg-[#EEEEF0]"><Pencil size={13} color={SUB} /></button>
+                  <button onClick={() => { onDelete(d.id); notify("Diskon dihapus"); }} className="w-7 h-7 rounded-lg flex items-center justify-center hover:bg-[#FCEDED]"><Trash2 size={13} color={DANGER} /></button>
+                </div>
+              </div>
+              <div className="mt-4 pt-4 border-t border-[#F0F0F2] flex items-center justify-between">
+                <span className="text-[12px] text-[#8E8E93]">Potongan</span>
+                <span className="text-[18px] font-semibold" style={{ color: BRAND }}>{d.persentase}%</span>
+              </div>
+            </Card>
+          ))}
+        </div>
+      )}
+
+      {showForm && <DiscountForm />}
     </div>
   );
 }
@@ -1063,7 +1222,7 @@ function LaporanNeraca({ transactions, inventory }) {
 }
 
 function LaporanBukuBesar({ transactions }) {
-  const sorted = useMemo(() => [...transactions].sort((a, b) => a.tanggal.localeCompare(b.tanggal) || a.id.localeCompare(b.id)), [transactions]);
+  const sorted = useMemo(() => [...transactions].sort((a, b) => a.tanggal.localeCompare(b.tanggal) || (a.id_invoice ?? "").localeCompare(b.id_invoice ?? "")), [transactions]);
   let running = 0;
   const rows = sorted.map((t) => {
     const debit = t.jenis === "pemasukan" ? t.nominal : 0;
@@ -1263,6 +1422,7 @@ const NAV = [
   { id: "dashboard", label: "Dashboard", icon: LayoutDashboard },
   { id: "transaksi", label: "Transaksi", icon: Receipt },
   { id: "inventory", label: "Inventory", icon: Boxes },
+  { id: "diskon", label: "Diskon", icon: Percent },
   { id: "laporan", label: "Laporan", icon: FileText },
   { id: "settings", label: "Pengaturan", icon: Settings },
 ];
@@ -1274,6 +1434,7 @@ export default function App() {
   const [mobileMenu, setMobileMenu] = useState(false);
   const [transactions, setTransactions] = useState([]);
   const [inventory, setInventory] = useState([]);
+  const [discounts, setDiscounts] = useState([]);
   const [ready, setReady] = useState(false);
   const [authChecked, setAuthChecked] = useState(false);
   const [toast, setToast] = useState(null);
@@ -1285,9 +1446,10 @@ export default function App() {
   const loadData = useCallback(async () => {
     setReady(false);
     try {
-      const [tx, inv] = await Promise.all([fetchTransactions(), fetchInventory()]);
+      const [tx, inv, disc] = await Promise.all([fetchTransactions(), fetchInventory(), fetchDiscounts()]);
       setTransactions(tx);
       setInventory(inv);
+      setDiscounts(disc);
     } catch (error) {
       notify("Gagal memuat data: " + error.message);
     } finally {
@@ -1450,6 +1612,34 @@ export default function App() {
     }
   };
 
+  // --- Diskon: pola sama dengan inventory ---
+  const addDisc = async (d) => {
+    try {
+      const created = await createDiscount(d, userId);
+      setDiscounts((prev) => [created, ...prev]);
+    } catch (error) {
+      notify("Gagal menyimpan diskon: " + error.message);
+    }
+  };
+  const updateDisc = async (d) => {
+    try {
+      const updated = await updateDiscount(d);
+      setDiscounts((prev) => prev.map((x) => (x.id === updated.id ? updated : x)));
+    } catch (error) {
+      notify("Gagal memperbarui diskon: " + error.message);
+    }
+  };
+  const deleteDisc = async (id) => {
+    const prevState = discounts;
+    setDiscounts((prev) => prev.filter((x) => x.id !== id));
+    try {
+      await deleteDiscount(id);
+    } catch (error) {
+      setDiscounts(prevState);
+      notify("Gagal menghapus diskon: " + error.message);
+    }
+  };
+
   if (!authChecked) {
     return (
       <div className="min-h-screen w-full bg-white flex items-center justify-center">
@@ -1536,8 +1726,9 @@ export default function App() {
           ) : (
             <>
               {view === "dashboard" && <Dashboard transactions={transactions} inventory={inventory} />}
-              {view === "transaksi" && <TransaksiPage transactions={transactions} inventory={inventory} onAdd={addTx} onUpdate={updateTx} onDelete={deleteTx} notify={notify} />}
+              {view === "transaksi" && <TransaksiPage transactions={transactions} inventory={inventory} discounts={discounts} onAdd={addTx} onUpdate={updateTx} onDelete={deleteTx} notify={notify} />}
               {view === "inventory" && <InventoryPage inventory={inventory} onAdd={addInv} onUpdate={updateInv} onDelete={deleteInv} notify={notify} />}
+              {view === "diskon" && <DiskonPage discounts={discounts} onAdd={addDisc} onUpdate={updateDisc} onDelete={deleteDisc} notify={notify} />}
               {view === "laporan" && <LaporanPage transactions={transactions} inventory={inventory} />}
               {view === "settings" && <SettingsPage user={user} onLogout={handleLogout} />}
             </>

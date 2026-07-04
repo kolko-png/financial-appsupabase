@@ -10,6 +10,7 @@ function toFrontend(row) {
   if (!row) return row;
   return {
     id: row.id,
+    id_invoice: row.id_invoice,
     nama: row.nama,
     stok: row.stok,
     satuan: row.satuan,
@@ -19,13 +20,15 @@ function toFrontend(row) {
 }
 
 function toDb(item) {
-  return {
+  const db = {
     nama: item.nama,
     stok: item.stok,
     satuan: item.satuan,
     harga_modal: item.hargaModal,
     harga_jual: item.hargaJual,
   };
+  if (item.id_invoice) db.id_invoice = item.id_invoice;
+  return db;
 }
 
 export async function fetchInventory() {

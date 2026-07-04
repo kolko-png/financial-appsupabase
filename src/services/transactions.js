@@ -3,13 +3,13 @@ import { supabase } from "@/lib/supabaseClient";
 /**
  * Service ini sengaja mengembalikan objek dengan bentuk (shape) yang PERSIS
  * sama dengan objek transaksi yang selama ini dipakai di App.jsx
- * ({ id, tanggal, jenis, kategori, nama, deskripsi, nominal, status, bukti }),
+ * ({ id, id_invoice, tanggal, jenis, kategori, nama, deskripsi, nominal, status, bukti }),
  * supaya komponen UI (TransaksiPage, TransaksiForm, LaporanPage, dst) tidak
  * perlu diubah sama sekali — hanya sumber datanya yang berpindah dari
  * localStorage ke Supabase.
  */
 
-const SELECT_COLUMNS = "id, tanggal, jenis, kategori, nama, deskripsi, nominal, status, bukti, inventory_id, quantity";
+const SELECT_COLUMNS = "id, id_invoice, tanggal, jenis, kategori, nama, deskripsi, nominal, status, bukti, inventory_id, quantity, discount_id";
 
 export async function fetchTransactions() {
   const { data, error } = await supabase
@@ -23,8 +23,8 @@ export async function fetchTransactions() {
 }
 
 export async function createTransaction(tx, userId) {
-  // id tidak dikirim — dibuat otomatis oleh database (format TRX0001, dst)
-  const { id, ...payload } = tx;
+  // id & id_invoice tidak dikirim — dibuat otomatis oleh database
+  const { id, id_invoice, ...payload } = tx;
   const { data, error } = await supabase
     .from("transactions")
     .insert({ ...payload, created_by: userId ?? null })
@@ -36,7 +36,7 @@ export async function createTransaction(tx, userId) {
 }
 
 export async function updateTransaction(tx) {
-  const { id, ...payload } = tx;
+  const { id, id_invoice, ...payload } = tx;
   const { data, error } = await supabase
     .from("transactions")
     .update(payload)
